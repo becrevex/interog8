@@ -1,4 +1,90 @@
 #!/usr/bin/env python3
+# crashmon.py - Pure Python Windows Crash Monitor (final fixed version)
+# Usage: python crashmon.py "C:\full\path\to\vulnserver.exe"
+#        python crashmon.py -p 1234
+
+import sys
+import time
+import os
+from datetime import datetime
+import ctypes
+from ctypes import wintypes
+
+kernel32 = ctypes.windll.kernel32
+
+# ====================== FIX FOR MISSING ULONG_PTR ======================
+if not hasattr(wintypes, 'ULONG_PTR'):
+    wintypes.ULONG_PTR = ctypes.c_ulong if ctypes.sizeof(ctypes.c_void_p) == 4 else ctypes.c_ulonglong
+
+# ====================== WINDOWS DEBUG STRUCTURES ======================
+class EXCEPTION_RECORD(ctypes.Structure):
+    pass
+
+EXCEPTION_RECORD._fields_ = [
+    ("ExceptionCode", wintypes.DWORD),
+    ("ExceptionFlags", wintypes.DWORD),
+    ("ExceptionRecord", ctypes.POINTER(EXCEPTION_RECORD)),
+    ("ExceptionAddress", ctypes.c_void_p),
+    ("NumberParameters", wintypes.DWORD),
+    ("ExceptionInformation", wintypes.ULONG_PTR * 15)
+]
+
+class EXCEPTION_DEBUG_INFO(ctypes.Structure):
+    _fields_ = [
+        ("ExceptionRecord", EXCEPTION_RECORD),
+        ("dwFirstChance", wintypes.DWORD)
+    ]
+
+class DEBUG_EVENT_UNION(ctypes.Union):
+    _fields_ = [("Exception", EXCEPTION_DEBUG_INFO)]
+
+class DEBUG_EVENT(ctypes.Structure):
+    _fields_ = [
+        ("dwDebugEventCode", wintypes.DWORD),
+        ("dwProcessId", wintypes.DWORD),
+        ("dwThreadId", wintypes.DWORD),
+        ("u", DEBUG_EVENT_UNION)
+    ]
+
+# 32-bit CONTEXT
+class CONTEXT(ctypes.Structure):
+    _fields_ = [
+        ("ContextFlags", wintypes.DWORD),
+        ("Dr0", wintypes.DWORD), ("Dr1", wintypes.DWORD), ("Dr2", wintypes.DWORD),
+        ("Dr3", wintypes.DWORD), ("Dr6", wintypes.DWORD), ("Dr7", wintypes.DWORD),
+        ("FloatSave", ctypes.c_byte * 112),
+        ("SegGs", wintypes.DWORD), ("SegFs", wintypes.DWORD),
+        ("SegEs", wintypes.DWORD), ("SegDs", wintypes.DWORD),
+        ("Edi", wintypes.DWORD), ("Esi", wintypes.DWORD),
+        ("Ebx", wintypes.DWORD), ("Edx", wintypes.DWORD),
+        ("Ecx", wintypes.DWORD), ("Eax", wintypes.DWORD),
+        ("Ebp", wintypes.DWORD), ("Eip", wintypes.DWORD),
+        ("SegCs", wintypes.DWORD), ("EFlags", wintypes.DWORD),
+        ("Esp", wintypes.DWORD), ("SegSs", wintypes.DWORD),
+        ("ExtendedRegisters", ctypes.c_byte * 512)
+    ]
+
+# Constants
+DEBUG_PROCESS = 0x00000001
+CREATE_NEW_CONSOLE = 0x00000010
+EXCEPTION_DEBUG_EVENT = 1
+EXCEPTION_BREAKPOINT = 0x80000003
+EXCEPTION_SINGLE_STEP = 0x80000004
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage:\n  python crashmon.py <full_path_to_exe>\n  python crashmon.py -p <PID>")
+        sys.exit(1)
+
+    pid = None
+    exe_path = None
+    if sys.argv[1] == "-p" and len(sys.argv) > 2:
+        pid = int(sys.argv[2])
+    else:
+        exe_path = " ".join(sys.argv[1:])
+
+    crash_dir = "crashes"
+   #!/usr/bin/env python3
 # crashmon.py - Pure Python Windows Crash Monitor (fixed version)
 # Usage: python crashmon.py "C:\full\path\to\vulnserver.exe"
 #        python crashmon.py -p 1234
