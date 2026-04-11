@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# crashmon.py - Pure Python Windows Crash Monitor (final fixed version)
+# crashmon.py - Pure Python Windows Crash Monitor (robust final version)
 # Usage: python crashmon.py "C:\full\path\to\vulnserver.exe"
 #        python crashmon.py -p 1234
 
@@ -9,41 +9,21 @@ import os
 from datetime import datetime
 import ctypes
 from ctypes import wintypes
+import traceback
 
 kernel32 = ctypes.windll.kernel32
 
-# ====================== FIX FOR MISSING ULONG_PTR ======================
+# Fix for older Python versions
 if not hasattr(wintypes, 'ULONG_PTR'):
     wintypes.ULONG_PTR = ctypes.c_ulong if ctypes.sizeof(ctypes.c_void_p) == 4 else ctypes.c_ulonglong
 
-# ====================== WINDOWS DEBUG STRUCTURES ======================
-class EXCEPTION_RECORD(ctypes.Structure):
-    pass
-
-EXCEPTION_RECORD._fields_ = [
-    ("ExceptionCode", wintypes.DWORD),
-    ("ExceptionFlags", wintypes.DWORD),
-    ("ExceptionRecord", ctypes.POINTER(EXCEPTION_RECORD)),
-    ("ExceptionAddress", ctypes.c_void_p),
-    ("NumberParameters", wintypes.DWORD),
-    ("ExceptionInformation", wintypes.ULONG_PTR * 15)
-]
-
-class EXCEPTION_DEBUG_INFO(ctypes.Structure):
-    _fields_ = [
-        ("ExceptionRecord", EXCEPTION_RECORD),
-        ("dwFirstChance", wintypes.DWORD)
-    ]
-
-class DEBUG_EVENT_UNION(ctypes.Union):
-    _fields_ = [("Exception", EXCEPTION_DEBUG_INFO)]
-
+# Minimal DEBUG_EVENT using byte buffer (avoids abstract class error)
 class DEBUG_EVENT(ctypes.Structure):
     _fields_ = [
         ("dwDebugEventCode", wintypes.DWORD),
         ("dwProcessId", wintypes.DWORD),
         ("dwThreadId", wintypes.DWORD),
-        ("u", DEBUG_EVENT_UNION)
+        ("u", ctypes.c_byte * 160)          # enough space for any debug event
     ]
 
 # 32-bit CONTEXT
@@ -84,92 +64,10 @@ def main():
         exe_path = " ".join(sys.argv[1:])
 
     crash_dir = "crashes"
-   #!/usr/bin/env python3
-# crashmon.py - Pure Python Windows Crash Monitor (fixed version)
-# Usage: python crashmon.py "C:\full\path\to\vulnserver.exe"
-#        python crashmon.py -p 1234
-
-import sys
-import time
-import os
-from datetime import datetime
-import ctypes
-from ctypes import wintypes
-
-kernel32 = ctypes.windll.kernel32
-
-# ====================== WINDOWS DEBUG STRUCTURES ======================
-class EXCEPTION_RECORD(ctypes.Structure):
-    pass
-
-EXCEPTION_RECORD._fields_ = [
-    ("ExceptionCode", wintypes.DWORD),
-    ("ExceptionFlags", wintypes.DWORD),
-    ("ExceptionRecord", ctypes.POINTER(EXCEPTION_RECORD)),
-    ("ExceptionAddress", ctypes.c_void_p),
-    ("NumberParameters", wintypes.DWORD),
-    ("ExceptionInformation", wintypes.ULONG_PTR * 15)
-]
-
-class EXCEPTION_DEBUG_INFO(ctypes.Structure):
-    _fields_ = [
-        ("ExceptionRecord", EXCEPTION_RECORD),
-        ("dwFirstChance", wintypes.DWORD)
-    ]
-
-class DEBUG_EVENT_UNION(ctypes.Union):
-    _fields_ = [("Exception", EXCEPTION_DEBUG_INFO)]
-
-class DEBUG_EVENT(ctypes.Structure):
-    _fields_ = [
-        ("dwDebugEventCode", wintypes.DWORD),
-        ("dwProcessId", wintypes.DWORD),
-        ("dwThreadId", wintypes.DWORD),
-        ("u", DEBUG_EVENT_UNION)
-    ]
-
-# 32-bit CONTEXT (matches Immunity-style vuln research)
-class CONTEXT(ctypes.Structure):
-    _fields_ = [
-        ("ContextFlags", wintypes.DWORD),
-        ("Dr0", wintypes.DWORD), ("Dr1", wintypes.DWORD), ("Dr2", wintypes.DWORD),
-        ("Dr3", wintypes.DWORD), ("Dr6", wintypes.DWORD), ("Dr7", wintypes.DWORD),
-        ("FloatSave", ctypes.c_byte * 112),
-        ("SegGs", wintypes.DWORD), ("SegFs", wintypes.DWORD),
-        ("SegEs", wintypes.DWORD), ("SegDs", wintypes.DWORD),
-        ("Edi", wintypes.DWORD), ("Esi", wintypes.DWORD),
-        ("Ebx", wintypes.DWORD), ("Edx", wintypes.DWORD),
-        ("Ecx", wintypes.DWORD), ("Eax", wintypes.DWORD),
-        ("Ebp", wintypes.DWORD), ("Eip", wintypes.DWORD),
-        ("SegCs", wintypes.DWORD), ("EFlags", wintypes.DWORD),
-        ("Esp", wintypes.DWORD), ("SegSs", wintypes.DWORD),
-        ("ExtendedRegisters", ctypes.c_byte * 512)
-    ]
-
-# Constants
-DEBUG_PROCESS = 0x00000001
-CREATE_NEW_CONSOLE = 0x00000010
-EXCEPTION_DEBUG_EVENT = 1
-EXCEPTION_BREAKPOINT = 0x80000003
-EXCEPTION_SINGLE_STEP = 0x80000004
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage:\n  python crashmon.py <full_path_to_exe>\n  python crashmon.py -p <PID>")
-        sys.exit(1)
-
-    pid = None
-    exe_path = None
-    if sys.argv[1] == "-p" and len(sys.argv) > 2:
-        pid = int(sys.argv[2])
-    else:
-        exe_path = " ".join(sys.argv[1:])
-
-    crash_dir = "crashes"
     os.makedirs(crash_dir, exist_ok=True)
     crash_count = 0
 
-    print("=== Pure Python CrashMon Started (fixed) ===")
+    print("=== Pure Python CrashMon Started (robust version) ===")
 
     while True:
         hProcess = None
@@ -177,34 +75,23 @@ def main():
             if pid:
                 print(f"Attaching to PID {pid}...")
                 if not kernel32.DebugActiveProcess(pid):
-                    print("Attach failed! (Is the process already being debugged?)")
+                    print("Attach failed!")
                     time.sleep(3)
                     continue
-                hProcess = kernel32.OpenProcess(0x1F0FFF, False, pid)  # PROCESS_ALL_ACCESS
+                hProcess = kernel32.OpenProcess(0x1F0FFF, False, pid)
             else:
                 print(f"Launching {exe_path}...")
-                si = ctypes.Structure()  # dummy for CreateProcess
-                si = type('STARTUPINFOW', (ctypes.Structure,), {"_fields_": [
-                    ("cb", wintypes.DWORD), ("lpReserved", wintypes.LPWSTR),
-                    ("lpDesktop", wintypes.LPWSTR), ("lpTitle", wintypes.LPWSTR),
-                    ("dwX", wintypes.DWORD), ("dwY", wintypes.DWORD),
-                    ("dwXSize", wintypes.DWORD), ("dwYSize", wintypes.DWORD),
-                    ("dwXCountChars", wintypes.DWORD), ("dwYCountChars", wintypes.DWORD),
-                    ("dwFillAttribute", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
-                    ("wShowWindow", wintypes.WORD), ("cbReserved2", wintypes.WORD),
-                    ("lpReserved2", ctypes.c_void_p), ("hStdInput", wintypes.HANDLE),
-                    ("hStdOutput", wintypes.HANDLE), ("hStdError", wintypes.HANDLE)
-                ]})()
+                si = wintypes.STARTUPINFOW()
                 si.cb = ctypes.sizeof(si)
-                pi = type('PROCESS_INFORMATION', (ctypes.Structure,), {
-                    "_fields_": [("hProcess", wintypes.HANDLE), ("hThread", wintypes.HANDLE),
-                                 ("dwProcessId", wintypes.DWORD), ("dwThreadId", wintypes.DWORD)]
-                })()
+                pi = wintypes.PROCESS_INFORMATION()
 
-                if not kernel32.CreateProcessW(None, exe_path, None, None, False,
-                                               DEBUG_PROCESS | CREATE_NEW_CONSOLE,
-                                               None, None, ctypes.byref(si), ctypes.byref(pi)):
-                    print("Launch failed!")
+                success = kernel32.CreateProcessW(
+                    None, exe_path, None, None, False,
+                    DEBUG_PROCESS | CREATE_NEW_CONSOLE,
+                    None, None, ctypes.byref(si), ctypes.byref(pi)
+                )
+                if not success:
+                    print(f"Launch failed! Error code: {kernel32.GetLastError()}")
                     time.sleep(3)
                     continue
                 hProcess = pi.hProcess
@@ -217,8 +104,8 @@ def main():
                     continue
 
                 if debug_event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT:
-                    exc = debug_event.u.Exception.ExceptionRecord
-                    exc_code = exc.ExceptionCode
+                    # Extract exception code from byte buffer (offset 0 in the union)
+                    exc_code = int.from_bytes(debug_event.u[0:4], "little")
 
                     if exc_code not in (EXCEPTION_BREAKPOINT, EXCEPTION_SINGLE_STEP):
                         crash_count += 1
@@ -230,10 +117,11 @@ def main():
                         report = [f"=== Crash Report #{crash_count} - {ts} ===",
                                   f"Exception code: 0x{exc_code:08X}"]
 
-                        # === FULL REGISTERS ===
+                        # Full registers, stack dump, call stack
                         ctx = CONTEXT()
-                        ctx.ContextFlags = 0x10007  # CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+                        ctx.ContextFlags = 0x10007
                         hThread = kernel32.OpenThread(0x1F03FF, False, debug_event.dwThreadId)
+
                         if kernel32.GetThreadContext(hThread, ctypes.byref(ctx)):
                             report.append("\nRegisters:")
                             for name, val in [
@@ -243,7 +131,7 @@ def main():
                             ]:
                                 report.append(f"{name:4} = 0x{val:08X}")
 
-                            # === STACK DUMP ===
+                            # Stack dump
                             esp = ctx.Esp
                             report.append(f"\nStack dump around ESP (0x{esp:08X}):")
                             buf = (ctypes.c_byte * 384)()
@@ -253,7 +141,7 @@ def main():
                                     addr = esp - 64 + i
                                     report.append(f"  0x{addr:08X} : 0x{val:08X}")
 
-                            # === CALL STACK (EBP walk) ===
+                            # Call stack (EBP walk)
                             report.append("\nCall Stack (EBP chain, top 20):")
                             ebp = ctx.Ebp
                             for i in range(20):
@@ -268,17 +156,14 @@ def main():
                                 except:
                                     break
 
-                        # Save report
                         with open(crash_file, "w", encoding="utf-8") as f:
                             f.write("\n".join(report))
 
                         print(f"Crash saved → {crash_file}")
 
-                        # Kill crashed process
                         kernel32.TerminateProcess(hProcess, 1)
-                        break  # restart the outer loop
+                        break
 
-                # Continue debug event
                 kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, 0x80010001)
 
         except KeyboardInterrupt:
@@ -286,6 +171,8 @@ def main():
             break
         except Exception as e:
             print(f"Error: {e}")
+            print("Full traceback:")
+            traceback.print_exc()
             time.sleep(2)
         finally:
             if exe_path:
