@@ -9,9 +9,9 @@ def main(args):
     imm = Debugger()
 
     if not args:
-        return "Usage: !crashmon <full_path_to_exe>   or   !crashmon -p <PID>"
+        return "Usage:\n  !crashmon <full_path_to_exe>\n  !crashmon -p <PID>"
 
-    # Parse args
+    # Parse arguments
     pid = None
     exe_path = None
     if len(args) == 2 and args[0] == "-p":
@@ -22,40 +22,42 @@ def main(args):
     else:
         exe_path = " ".join(args)
 
+    # Create crash folder
     crash_dir = os.path.join(os.getcwd(), "crashes")
     if not os.path.exists(crash_dir):
         os.makedirs(crash_dir)
 
     crash_count = 0
-    imm.log("=== CrashMon Started ===", LOG_ALWAYS)
+    imm.log("=== CrashMon Started ===")
 
     while True:
         try:
             # Launch or attach
             if pid:
-                imm.log("Attaching to PID %d..." % pid, LOG_ALWAYS)
+                imm.log("Attaching to PID %d..." % pid)
                 if not imm.attach(pid):
-                    imm.log("Attach failed!", LOG_ERROR)
+                    imm.log("Attach failed!", 1)
                     time.sleep(3)
                     continue
             elif exe_path:
-                imm.log("Launching %s..." % exe_path, LOG_ALWAYS)
+                imm.log("Launching %s..." % exe_path)
                 imm.execute(exe_path)          # Most reliable launch method
                 time.sleep(3)
 
-            imm.log("Monitoring for crashes...", LOG_ALWAYS)
+            imm.log("Monitoring for crashes...")
 
             while True:
                 imm.go()
                 time.sleep(0.2)
 
+                # Check for crash
                 exc = imm.getException()
                 if exc:
                     crash_count += 1
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                     crash_file = os.path.join(crash_dir, "crash_%03d_%s.txt" % (crash_count, ts))
 
-                    imm.log("!!! CRASH #%d DETECTED !!!" % crash_count, LOG_ERROR)
+                    imm.log("!!! CRASH #%d DETECTED !!!" % crash_count, 1)
 
                     report = []
                     report.append("=== Crash Report #%d - %s ===" % (crash_count, ts))
@@ -74,7 +76,7 @@ def main(args):
                     for i, frame in enumerate(stack[:20]):
                         report.append("  %02d: 0x%08X  %s" % (i, frame.getAddress(), frame.getSymbol() or ""))
 
-                    # Stack dump
+                    # Stack dump around ESP
                     if "ESP" in regs:
                         esp = regs["ESP"]
                         report.append("\nStack dump around ESP (0x%08X):" % esp)
@@ -86,19 +88,20 @@ def main(args):
                             except:
                                 report.append("  0x%08X : [unreadable]" % addr)
 
+                    # Save report
                     with open(crash_file, "w") as f:
                         f.write("\n".join(report))
 
-                    imm.log("Crash saved: %s" % crash_file, LOG_ALWAYS)
+                    imm.log("Crash saved: %s" % crash_file)
 
-                    # Restart
-                    imm.log("Restarting process...", LOG_ALWAYS)
+                    # Restart process
+                    imm.log("Restarting process...")
                     imm.restartProcess()
                     time.sleep(3)
                     break
 
         except Exception as e:
-            imm.log("Monitor error: %s" % str(e), LOG_ERROR)
+            imm.log("Monitor error: %s" % str(e), 1)
             time.sleep(3)
 
     return "CrashMon stopped"
